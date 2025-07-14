@@ -1,0 +1,130 @@
+---
+title: "labidiaster_BA3_circus_plots"
+output: html_document
+date: "2025-07-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Circus plot with BA migration analysis
+
+# Run bayesass for COI data [coverted to genepop and then edited to be in the correct format for bayesass: e.g. #IndID PopID LocusID Allele1 Allele2 (as COI is mtDNA-haploid, the same allele is repeated twice) #Ind1 Pop1 COI 1 1 #Ind2 Pop1 COI 2 2 #Ind3 Pop2 COI 1 1 #Ind4 Pop2 COI 3 3]
+
+```{bash}
+module load bayesass
+
+BA3MSAT -i20000000 -b2000000 -n1000 --seed 10456 --trace FILENAME.txt --output FILENAME_output.txt
+
+```
+
+# Run circus to create a contemporary migration plot
+# Install and load required packages
+```{r}
+if (!require(circlize)) install.packages("circlize")
+if (!require(dplyr)) install.packages("dplyr")
+
+library(circlize)
+library(dplyr)
+```
+
+# Define migration rates from bayesass results
+```{r}
+migration_rates <- matrix(c('x'), nrow = 10, byrow = TRUE) 
+
+```
+
+# Define population labels
+```{r}
+pop_labels <- c("Pop1", "Pop2", "Pop3", "Pop4", "Pop5", "Pop6", "Pop7", "Pop8", "Pop9", "Pop10")
+```
+
+# Define a function to rename labels with examples
+```{r}
+new_labels <- pop_labels
+new_labels[new_labels == "Pop1"] <- "Shag Rocks"
+new_labels[new_labels == "Pop2"] <- "South Georgia West"
+new_labels[new_labels == "Pop3"] <- "South Georgia East"
+new_labels[new_labels == "Pop4"] <- "Visokoi Island (SSI)"
+new_labels[new_labels == "Pop5"] <- "Candlemas Island (SSI)"
+new_labels[new_labels == "Pop6"] <- "Montagu Island (SSI)"
+new_labels[new_labels == "Pop7"] <- "Elephant Island"
+new_labels[new_labels == "Pop8"] <- "South Shetland Islands"
+new_labels[new_labels == "Pop9"] <- "Bransfield Mouth"
+new_labels[new_labels == "Pop10"] <- "Bransfield Strait"
+```
+
+#Define custom colors for each location with examples
+```{r}
+location_colors <- c(
+  "Shag Rocks" = "#8B0000",            
+  "South Georgia West" = "#CC0000",    
+  "South Georgia East" = "#CC0000",    
+  "Visokoi Island (SSI)" = "#FF0000",  
+  "Candlemas Island (SSI)" = "#FF0000",
+  "Montagu Island (SSI)" = "#FF0000",  
+  "Elephant Island" = "#ADFF2F",       
+  "South Shetland Islands" = "green", 
+  "Bransfield Mouth" = "darkgreen",    
+  "Bransfield Strait" = "darkgreen"    
+)
+```
+
+# Prepare data for circlize
+```{r}
+migration_df <- as.data.frame(migration_rates)
+colnames(migration_df) <- new_labels
+migration_df$from <- new_labels
+migration_df_long <- tidyr::pivot_longer(migration_df, cols = -from, names_to = "to", values_to = "rate")
+```
+
+# Remove self-migrations and low rates for clarity
+```{r}
+migration_df_long <- migration_df_long %>%
+  filter(from != to, rate > 0.001)
+```
+
+# Set up the circular layout
+```{r}
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 0.2, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+
+label_color <- "black" # Change the label color to white
+label_color_X <- "white" # Change the label color to white
+
+```
+
+# Create the base circular plot
+```{r plot}
+png(filename = "FILENAME_circus_plot.png", width = 10000, height = 10000, res = 1500)
+
+chordDiagram(
+  x = migration_df_long,
+  grid.col = location_colors,
+  transparency = 0.5,
+  directional = 1,
+  direction.type = c("arrows", "diffHeight"),
+  link.arr.type = "big.arrow",
+  diffHeight = -0.04,
+  link.sort = TRUE,
+  link.largest.ontop = TRUE,
+  annotationTrack = c("grid", ""),  # This keeps numbers and lines
+  preAllocateTracks = list(track.height = 0.5),
+  annotationTrackHeight = c(0.07, 0.1),
+  # Set labels to empty strings to remove them
+  #labels = rep("", length(pop_labels))
+)
+
+circos.track(track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5),
+              col = "black",
+              cex = 0.5)  # Adjust text size as needed
+}, bg.border = NA)
+
+
+
+circos.clear()
+dev.off()
+```
