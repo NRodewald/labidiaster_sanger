@@ -1,0 +1,215 @@
+---
+title: "labidiaster_fst_heatplot"
+output: html_document
+date: "2025-07-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+pkg_list <- c("XML", "corrplot", "magrittr", "dplyr")
+
+check_pkg <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg, repos = "https://cran.r-project.org")
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      stop("Package ", pkg, " could not be installed.")
+    }
+  }
+  library(pkg, character.only = TRUE)
+}
+
+invisible(lapply(pkg_list, check_pkg))
+```
+
+
+```{r}
+arqxml <- xmlParse("~/input_dir/filename.xml")
+arq_fstmat <- xpathSApply(arqxml, "//PairFstMat", xmlValue) %>% as.vector()
+arq_fstmat <- strsplit(arq_fstmat, "\n")
+
+arq_fstmat_mt <- do.call(cbind, arq_fstmat[1])
+arq_fstmat_mt %<>% subset(arq_fstmat_mt[, 1] != "")
+arq_fstmat_mt <- gsub(" + ", " ", arq_fstmat_mt)
+arq_fstmat_mt <- strsplit(arq_fstmat_mt, " ")
+try(arq_fstmat_mt <- do.call(rbind, arq_fstmat_mt))
+arq_fstmat_mt <- arq_fstmat_mt[3:nrow(arq_fstmat_mt), 3:ncol(arq_fstmat_mt)]
+```
+
+# Full matrix
+
+```{r}
+arq_fstmat_mt[upper.tri((arq_fstmat_mt))] <- t(arq_fstmat_mt)[upper.tri(arq_fstmat_mt)]
+diag(arq_fstmat_mt) <- 0
+
+arq_rowname <- xpathSApply(arqxml, "//pairDistPopLabels", xmlValue) %>% 
+  strsplit("\n")
+arq_rowname <- do.call(cbind, arq_rowname) 
+arq_rowname <- gsub("+\\d+:\t", "", arq_rowname)
+arq_rowname <- arq_rowname[5:nrow(arq_rowname)] %>% as.vector()
+arq_fstmat_mt %<>% apply(c(1, 2), as.numeric)
+
+rownames(arq_fstmat_mt) <- arq_rowname
+colnames(arq_fstmat_mt) <- arq_rowname
+
+# Print the current row and column names
+print("Current row and column names:")
+print(rownames(arq_fstmat_mt))
+```
+
+#custom edits for location names
+```{r}
+# Custom order list for populations L. annulatus
+custom_order <- c("  SR", "  SG", "  SSI", "  EI", "  SSH", "  BS", "  HI", "  BI") 
+
+# Custom order list for populations L. radiosus
+#custom_order <- c("  SoM", "  FI", "  DB", "  HI", "  AS", "  SI", "  RS") 
+
+
+# Check if custom_order matches the current row/column names
+if (all(custom_order %in% rownames(arq_fstmat_mt))) {
+  # Reorder the matrix using the custom order
+  arq_fstmat_mt <- arq_fstmat_mt[custom_order, custom_order]
+} else {
+  stop("The names in custom_order do not match the matrix row/column names.")
+}
+```
+
+# Now the matrix looks...
+```{r}
+arq_fstmat_mt[1:5, 1:5]
+
+write.csv(arq_fstmat_mt, "arq_fstmat_mt.csv")
+
+arq_fstmat_mt[arq_fstmat_mt < 0] <- 0
+```
+
+# for p-values
+```{r}
+arq_fstp <- xpathSApply(arqxml, "//PairFstPvalMat", xmlValue) %>% as.vector()
+arq_fstp <- strsplit(arq_fstp, "\n")
+
+arq_fstp <- do.call(cbind, arq_fstp[1])
+arq_fstp %<>% subset(arq_fstp[, 1] != "")
+arq_fstp <- gsub(" + ", " ", arq_fstp)
+arq_fstp <- strsplit(arq_fstp, " ")
+try(arq_fstp <- do.call(rbind, arq_fstp))
+
+arq_fstp <- arq_fstp[2:nrow(arq_fstp), 3:ncol(arq_fstp)]
+arq_fstp[upper.tri(arq_fstp)] <- NA
+diag(arq_fstp) <- 0
+
+# Remove the SD of pvalue
+arq_fstp <- gsub(" ", "", arq_fstp)
+arq_fstp <- gsub("\\+.*", "", arq_fstp)
+
+write.csv(arq_fstp, "arq_fstp.csv")
+```
+
+# Full matrix
+```{r}
+arq_fstp[upper.tri(arq_fstp)] <- t(arq_fstp)[upper.tri(arq_fstp)]
+rownames(arq_fstp) <- arq_rowname
+colnames(arq_fstp) <- arq_rowname
+arq_fstp %<>% apply(c(1, 2), as.numeric)
+```
+
+# Reorder the p-value matrix using the custom order
+```{r}
+if (all(custom_order %in% rownames(arq_fstp))) {
+  arq_fstp <- arq_fstp[custom_order, custom_order]
+} else {
+  stop("The names in custom_order do not match the matrix row/column names.")
+}
+```
+
+# FstMat with insig p-value mark
+```{r}
+corrplot(arq_fstmat_mt, method = "color", type = "lower", na.label = " ",
+         tl.col = "black", tl.srt = 10, order = "original",
+         p.mat = arq_fstp, sig.level = 0.01, insig = "label_sig", pch.cex = 1, pch = "*", pch.col = "black", col.lim = c(0, 1))
+
+
+```
+
+```{r}
+library(corrplot)
+```
+
+# Function to rename labels
+```{r}
+rename_labels <- function(labels) {
+  new_labels <- labels
+  new_labels[new_labels == "  SR"] <- "Shag Rocks"
+  new_labels[new_labels == "  SG"] <- "South Georgia"
+  new_labels[new_labels == "  SSI"] <- "South Sandwich Islands"
+  new_labels[new_labels == "  EI"] <- "Elephant Island"
+  new_labels[new_labels == "  SSH"] <- "South Shetland Islands"
+  new_labels[new_labels == "  BS"] <- "Bransfield Strait"
+  #new_labels[new_labels == "  SoM"] <- "Strait of Magellan"
+  #new_labels[new_labels == "  FI"] <- "Falkland Islands/Malvinas"
+  #new_labels[new_labels == "  DB"] <- "Discovery Bank"
+  new_labels[new_labels == "  HI"] <- "Heard Island"
+  #new_labels[new_labels == "  AS"] <- "Admiralty Seamount"
+  #new_labels[new_labels == "  SI"] <- "Scott Islands"
+  #new_labels[new_labels == "  RS"] <- "Ross Sea"
+  new_labels[new_labels == "  BI"] <- "Balleny Islands"
+  return(new_labels)
+}
+
+```
+
+# Rename row and column names
+```{r}
+rownames(arq_fstmat_mt) <- rename_labels(rownames(arq_fstmat_mt))
+colnames(arq_fstmat_mt) <- rename_labels(colnames(arq_fstmat_mt))
+rownames(arq_fstp) <- rename_labels(rownames(arq_fstp))
+colnames(arq_fstp) <- rename_labels(colnames(arq_fstp))
+```
+
+# Create the corrplot
+```{r}
+png("~/output_dir/filename.png", width = 1000, height = 1000, res = 150)
+
+corrplot(arq_fstmat_mt, 
+         method = "color",
+         type = "lower", 
+         na.label = " ",
+         tl.col = "black", 
+         tl.srt = 0,  # Horizontal text for left labels
+         order = "original",
+         p.mat = arq_fstp, 
+         sig.level = 0.05, 
+         number.font = 6,  # Make the coefficients bold
+         insig = "label_sig",
+         pch.cex = 1,
+         pch = " ",  # Use a yellow star for insignificant values
+         col.lim = c(0, 1),
+         addCoef.col = "black",  # Color of the coefficients (Fst values)
+         number.cex = 0.7,  # Size of the coefficients
+         number.digits = 2,  # Number of decimal places for coefficients
+         diag = FALSE,  # Don't show the diagonal
+         tl.pos = "l",  # Only show labels on the left
+         cl.pos = "r",  # Keep color legend on the right
+         cl.ratio = 0.15,  # Adjust this value to move the legend further right
+         cl.cex = 0.5,  # Adjust this value to move the legend further right
+         mar = c(10,1,1,1),  # Adjust right margin to accommodate legend
+         addgrid.col = "black",  # Add black lines to create boxes
+         tl.cex = 1,  # Adjust label font size
+         tl.font = 2)  # Make labels bold (2 for bold, 3 for italic, 4 for bold italic)
+)
+par(xpd = TRUE)
+text(x = 1:ncol(arq_fstmat_mt), 
+     y = rep(nrow(arq_fstmat_mt) - 7.8, ncol(arq_fstmat_mt)), 
+     labels = colnames(arq_fstmat_mt), 
+     srt = 90, 
+     adj = c(1,1), 
+     cex = 1)
+
+
+```
+
