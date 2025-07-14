@@ -1,0 +1,213 @@
+---
+title: "labidiaster_least_cost_distance_calculations"
+output: html_document
+date: "2025-07-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+#code adapted from Sally Lau
+#pairwise matrix of the shortest ditance between individual samples around the Antarctic continent 
+```{r}
+install.packages("DBI")
+install.packages("marmap")
+install.packages("tidyverse")
+install.packages("ade4")
+install.packages("adespatial")
+install.packages("raster")
+install.packages("sf")
+```
+
+# Load packages
+```{r}
+library(DBI)
+library(marmap)
+library(tidyverse)
+library(ade4)
+library(adespatial)
+library(dplyr)
+#library(SoDA)
+library(raster)
+library(sf)
+```
+
+# Get data for Antarctica https://cran.r-project.org/web/packages/marmap/vignettes/marmap-DataAnalysis.pdf
+#get bathy antarctic data from https://github.com/tbrycekelly/TheSource/blob/master/data/bathy.antarctic.rdata
+#see #https://github.com/Tom-Jenkins/seascape_rda_tutorial/ for more information
+```{r}
+load("./bathy.antarctic.rdata")
+View(bathy.antarctic)
+```
+
+#plot data
+```{r}
+bathy.antarctic <- data.frame(bathy.antarctic)
+bathy.antarctic <- rename(bathy.antarctic, x = Lon, y = Lat)
+plot(bathy.antarctic)
+```
+
+#extract bathy.class from bathy.antarctic 
+```{r}
+FILENAME_bathy <- bathy.antarctic$Z
+plot(FILENAME_bathy)
+r1 <- marmap::as.raster(FILENAME_bathy)
+```
+
+# Create new projected raster object
+```{r}
+r2 <- projectRaster(r1, crs = 3031)
+```
+
+# Switch back to a bathy object
+```{r}
+antarctca_projected <- as.bathy(r2)
+plot(antarctca_projected)
+```
+
+#import sample coords and convert them to polar projection 3031
+```{r}
+coords = read.csv("./FILENAME_gps.csv", header=T, row.names = 1)
+print(coords)
+```
+
+#convert
+```{r}
+# Define your polar stereographic projection string (EPSG:3031)
+polar_proj <- "+init=epsg:3031"
+
+# Define your latitude/longitude projection string (EPSG:4326)
+latlon_proj <- "+init=epsg:4326"
+```
+
+# Assuming 'coords' is a data frame with columns 'long' and 'lati'
+```{r}
+
+df_atlon <- dplyr::select(coords, long, lati)
+
+```
+
+```{r}
+# Convert the data frame to an sf object with the lat/lon CRS
+df_atlon <- st_as_sf(df_atlon, coords = c("long", "lati"), crs = latlon_proj)
+
+# Transform to the polar projection
+df_polar <- st_transform(df_atlon, crs = polar_proj)
+
+# Now df_polar contains the coordinates in the polar projection
+print(df_polar)
+
+coords_polar <- st_coordinates(df_polar)
+```
+
+```{r}
+# Combine the coordinates with the original data frame (without geometry)
+df_polar_coord <- as.data.frame(df_polar)
+df_polar_coord <- cbind(df_polar_coord, coords_polar)
+
+# Rename columns
+names(df_polar_coord)[names(df_polar_coord) == "X"] <- "long"
+names(df_polar_coord)[names(df_polar_coord) == "Y"] <- "lati"
+
+# Print the final data frame to verify
+print(df_polar_coord)
+
+names(df_polar_coord)[names(df_polar_coord) == "long"] <- "X"
+names(df_polar_coord)[names(df_polar_coord) == "lati"] <- "Y"
+
+print(colnames(df_polar_coord))
+```
+
+```{r}
+#X is long, Y is lati
+coords.gps = dplyr::select(df_polar_coord, X, Y)
+
+depths = cbind(site = coords$ID, get.depth(antarctca_projected, coords.gps, locator = FALSE))
+
+plot(antarctca_projected)
+points(df_polar_coord$X, df_polar_coord$Y, pch = 21, bg = "yellow", col = "black", cex = 2)
+```
+
+# Create transition object [long run time]
+# Use a minimum depth of -10 to avoid path crossing land masses based on marmap turtorial
+```{r}
+trans1 = trans.mat(antarctca_projected, min.depth = -1, max.depth = NULL)
+save(trans1, file = "transition_object.RData")
+load("transition_object.RData")
+```
+
+# Compute least-cost paths [long run time]
+```{r}
+lc_paths_test = lc.dist(trans1, coords.gps, res = "path")
+save(lc_paths_test, file = "least_cost_paths.RData")
+load("least_cost_paths.RData")
+```
+
+# Plot paths on a map
+# Visually check that no path overlaps land
+```{r}
+plot.bathy(antarctca_projected, image= TRUE, land = TRUE, n = 0,
+           bpal = list(c(0, max(antarctca_projected, na.rm = TRUE), "grey"),
+                       c(min(antarctca_projected, na.rm = TRUE), 0, "royalblue")))
+
+lapply(lc_paths_test, lines, col = "orange", lwd = 2, lty = 1)
+```
+
+# Compute least-cost distances (km) matrix
+```{r}
+
+lc_dist = lc.dist(trans1, coords.gps, res = "dist")
+```
+
+# Convert to matrix, rename columns and rows, and export as csv file
+```{r}
+lc_mat = as.matrix(lc_dist)
+colnames(lc_mat) = as.vector(coords$ID)
+rownames(lc_mat) = as.vector(coords$ID)
+lc_mat
+write.csv(lc_mat, file="FILENAME.csv")
+```
+
+# ENSURE SEAWARD PAIRWISE DISTANCES ARE USED - MANUAL CHECK THAT THEY DO NOT TRAVERSE LANDMASSES!!! 
+# add matrix of pairwise oceanic distances as created using TLJ's code 'calculate_marine_lc_distances.R'
+```{r}
+sea_distances = read.csv("FILENAME.csv")
+sea_distances 
+# these check out as oceanic distances
+
+pairwise_sea_dist <- as.dist(sea_distances[, -1])
+pairwise_sea_dist
+# these check out as oceanic distances
+
+class(pairwise_sea_dist)
+
+sea_dist = as.matrix(dist(pairwise_sea_dist))
+sea_dist
+
+write.table(sea_dist, file="pairwise_sea_dist.csv", row.names = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
