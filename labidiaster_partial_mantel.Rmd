@@ -1,0 +1,84 @@
+---
+title: "labidiaster_partial_mantel"
+output: html_document
+date: "2025-07-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+#calculating partial mantel test using COI seq, depth and least cost distance between gps locations from individiual sample collection locations
+```{r}
+install.packages("ecodist")
+install.packages("ape")
+install.packages("vegan")
+```
+
+#load packages
+```{r}
+library(ecodist)
+library(ape)
+library(vegan)
+```
+
+#load sequences
+```{r}
+fasta <- as.DNAbin(read.dna("./FILENAME.fas", format = "fasta", as.character = TRUE))
+```
+
+#Read in genetic distance between samples
+```{r}
+# Compute the distance matrix using the K80 model
+fasta_dist_matrix <- dist.dna(fasta, model = "K80", as.matrix = TRUE)
+
+# Convert the distance matrix to a data frame
+fasta_dist_df <- as.data.frame(fasta_dist_matrix)
+
+# Replace row names with sequential numbers
+rownames(fasta_dist_df) <- 1:nrow(fasta_dist_df)
+colnames(fasta_dist_df) <- 1:ncol(fasta_dist_df)
+# Print the updated distance matrix
+print(fasta_dist_df)
+```
+
+#load least cost distance file
+```{r}
+lc_distance_km <- read.csv("./FILENAME.csv", row.names=1) 
+lc_distance_km_dist <- as.dist(lc_distance_km)
+names(lc_distance_km_dist) <- names(fasta_dist_df)
+```
+
+#calculate dist object for water depth 
+```{r}
+metadata <- read.csv("./I7_annulatus_depth.csv", row.names=1)
+rownames(metadata) <- 1:nrow(metadata)
+colnames(fasta_dist_df) <- 1:ncol(fasta_dist_df)
+depth.d <- dist(metadata$depth) 
+```
+
+#just pairwise subtraction between 2 points. triple check to make sure sample ID orders are consistent across all dist objects! 
+```{r}
+rownames(depth.d) <- 1:nrow(depth.d)
+colnames(depth.d) <- 1:ncol(depth.d)
+
+names(depth.d) <- names(fasta_dist_df)
+```
+
+# Partial Mantel test: is the difference in least cost path distance between samples (lc_distance_km_dist) related to the genetic distance (fasta_dist_df) once the linear effects of water depth (depth.d) are removed
+```{r}
+mantel_result_gps_pearson <- mantel.partial(fasta_dist_df, lc_distance_km_dist, depth.d, method = "pearson", permutations = 9999)
+mantel_result_gps_spearman <- mantel.partial(fasta_dist_df, lc_distance_km_dist, depth.d, method = "spearman", permutations = 9999)
+mantel_result_gps_kendall <- mantel.partial(fasta_dist_df, lc_distance_km_dist, depth.d, method = "kendall", permutations = 9999)
+
+```
+
+# Partial Mantel test: is the difference in water depth (depth.d) related to the genetic distance (fasta_dist_df) once the linear effects of  least cost path distance between samples (lc_distance_km_dist) are removed
+```{r}
+mantel_result_depth_pearson <- mantel.partial(fasta_dist_df, depth.d, lc_distance_km_dist, method = "pearson", permutations = 9999)
+mantel_result_depth_spearman <- mantel.partial(fasta_dist_df, depth.d, lc_distance_km_dist, method = "spearman", permutations = 9999)
+mantel_result_depth_kendall <- mantel.partial(fasta_dist_df, depth.d, lc_distance_km_dist, method = "kendall", permutations = 9999)
+
+```
