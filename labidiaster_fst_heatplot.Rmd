@@ -183,7 +183,7 @@ corrplot(arq_fstmat_mt,
          tl.srt = 0,  # Horizontal text for left labels
          order = "original",
          p.mat = arq_fstp, 
-         sig.level = 0.05, 
+         sig.level = 0.002, #see bonferroni correction
          number.font = 6,  # Make the coefficients bold
          insig = "label_sig",
          pch.cex = 1,
